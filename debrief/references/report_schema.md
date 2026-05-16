@@ -4,7 +4,7 @@ Create a JSON object with this shape. All fields are optional unless otherwise n
 
 ```json
 {
-  "title": "Agent Insight Report",
+  "title": "Debrief Report",
   "subtitle": "Short context line",
   "generated_at": "2026-04-08",
   "subject": "Human + Agent",
@@ -46,7 +46,7 @@ Create a JSON object with this shape. All fields are optional unless otherwise n
       {
         "category": "Naming mismatch",
         "description": "What went wrong and why it mattered.",
-        "examples": ["Expected /insight, found /insights command instead"]
+        "examples": ["Expected /debrief, found /debriefs command instead"]
       }
     ]
   },
@@ -62,7 +62,7 @@ Create a JSON object with this shape. All fields are optional unless otherwise n
       "feature": "Custom Skills",
       "one_liner": "Reusable prompts and workflows.",
       "why_for_you": "Why it fits the observed pattern.",
-      "example_code": "/insight"
+      "example_code": "/debrief"
     }
   ],
   "patterns": [
@@ -80,7 +80,7 @@ Create a JSON object with this shape. All fields are optional unless otherwise n
         "title": "Report pipelines",
         "whats_possible": "What becomes possible next.",
         "how_to_try": "Concrete next step.",
-        "copyable_prompt": "Generate an insight report from the last 10 sessions and propose three reusable skills."
+        "copyable_prompt": "Generate a debrief report from the last 10 sessions and propose three reusable skills."
       }
     ]
   },

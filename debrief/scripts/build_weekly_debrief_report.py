@@ -14,7 +14,8 @@ from typing import Any
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 DEFAULT_SESSIONS_ROOT = Path(os.environ.get("AGENT_SESSIONS_ROOT", Path.home() / ".codex" / "sessions"))
-DEFAULT_RENDERER = SCRIPT_DIR / "render_insight_report.py"
+DEFAULT_RENDERER = SCRIPT_DIR / "render_debrief_report.py"
+SENSITIVITY_CHOICES = ("low", "medium", "high")
 
 PROJECT_HINTS = {
     "Agent Tooling": ("agent", "runtime", "skill", "command", "plugin", "automation", "memory"),
@@ -94,23 +95,31 @@ def clean_snippet(text: str, limit: int = 220) -> str:
     return text[:limit].rstrip()
 
 
-def safe_workspace_label(path_value: str) -> str:
+def safe_workspace_label(path_value: str, sensitivity: str) -> str:
     if not path_value:
         return "an unknown workspace"
+    if sensitivity == "high":
+        return "workspace"
     path = Path(path_value).expanduser()
     name = path.name or "workspace"
+    if sensitivity == "low":
+        return str(path).replace(str(Path.home()), "~")
     parent = path.parent.name if path.parent and path.parent.name else ""
     if parent and parent not in {".", "/", str(Path.home())}:
         return f"{parent}/{name}"
     return name
 
 
-def redact_sensitive_text(text: str) -> str:
+def redact_sensitive_text(text: str, sensitivity: str) -> str:
     if not text:
         return ""
-    home = str(Path.home())
-    redacted = text.replace(home, "~")
-    redacted = re.sub(r"/Users/[^/\s]+", "~", redacted)
+    redacted = text
+    if sensitivity in {"medium", "high"}:
+        home = str(Path.home())
+        redacted = redacted.replace(home, "~")
+        redacted = re.sub(r"/Users/[^/\s]+", "~", redacted)
+    if sensitivity == "high":
+        redacted = re.sub(r"(?<!\w)/(?:[\w .@+-]+/){1,}[\w .@+-]+", "[path]", redacted)
     redacted = re.sub(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+", "[email]", redacted)
     redacted = re.sub(r"(?i)(api[_-]?key|token|secret|password)\s*[:=]\s*[^\s,;]+", r"\1=[redacted]", redacted)
     return redacted
@@ -132,7 +141,7 @@ def action_signal(text: str) -> str | None:
     return None
 
 
-def summarize_session(path: Path) -> dict[str, Any] | None:
+def summarize_session(path: Path, sensitivity: str) -> dict[str, Any] | None:
     records = load_jsonl(path)
     if not records:
         return None
@@ -165,8 +174,8 @@ def summarize_session(path: Path) -> dict[str, Any] | None:
             if isinstance(name, str):
                 tool_names[name] += 1
 
-    first_user = next((clean_snippet(redact_sensitive_text(text)) for text in user_texts if clean_snippet(text)), "")
-    assistant_close = next((clean_snippet(redact_sensitive_text(text)) for text in reversed(assistant_texts) if clean_snippet(text)), "")
+    first_user = next((clean_snippet(redact_sensitive_text(text, sensitivity)) for text in user_texts if clean_snippet(text)), "")
+    assistant_close = next((clean_snippet(redact_sensitive_text(text, sensitivity)) for text in reversed(assistant_texts) if clean_snippet(text)), "")
     combined = " ".join([str(meta.get("cwd", "")), first_user, assistant_close])
     return {
         "path": str(path),
@@ -182,18 +191,18 @@ def summarize_session(path: Path) -> dict[str, Any] | None:
     }
 
 
-def collect_sessions(root: Path, start: date, end: date, max_sessions: int) -> list[dict[str, Any]]:
+def collect_sessions(root: Path, start: date, end: date, max_sessions: int, sensitivity: str) -> list[dict[str, Any]]:
     files: list[Path] = []
     for directory in day_dirs(root, start, end):
         files.extend(sorted(directory.glob("*.jsonl")))
     files = sorted(files, key=lambda p: p.stat().st_mtime if p.exists() else 0)
     if max_sessions > 0:
         files = files[-max_sessions:]
-    sessions = [summary for path in files if (summary := summarize_session(path))]
+    sessions = [summary for path in files if (summary := summarize_session(path, sensitivity))]
     return sessions
 
 
-def build_report(sessions: list[dict[str, Any]], start: date, end: date) -> dict[str, Any]:
+def build_report(sessions: list[dict[str, Any]], start: date, end: date, sensitivity: str) -> dict[str, Any]:
     categories = Counter(session["category"] for session in sessions)
     actions = Counter(session["action"] for session in sessions if session.get("action"))
     tool_counts: Counter[str] = Counter()
@@ -226,7 +235,7 @@ def build_report(sessions: list[dict[str, Any]], start: date, end: date) -> dict
             {
                 "title": clean_snippet(title, 96),
                 "description": clean_snippet(
-                    session.get("assistant_close") or f"Worked in {safe_workspace_label(session.get('cwd', ''))}.",
+                    session.get("assistant_close") or f"Worked in {safe_workspace_label(session.get('cwd', ''), sensitivity)}.",
                     260,
                 ),
             }
@@ -246,7 +255,7 @@ def build_report(sessions: list[dict[str, Any]], start: date, end: date) -> dict
             {
                 "category": "Wide workspace spread",
                 "description": "Work spanned many directories, so future reports should cluster by project before drawing conclusions.",
-                "examples": [safe_workspace_label(path) for path, _count in cwd_counts.most_common(3)],
+                "examples": [safe_workspace_label(path, sensitivity) for path, _count in cwd_counts.most_common(3)],
             }
         )
     if not tool_counts:
@@ -283,7 +292,7 @@ def build_report(sessions: list[dict[str, Any]], start: date, end: date) -> dict
     top_tools = ", ".join(name for name, _count in tool_counts.most_common(5)) or "limited tool-call signal"
     date_label = f"{start.isoformat()} to {end.isoformat()}"
     return {
-        "title": "Agent Weekly Insight",
+        "title": "Debrief Weekly Report",
         "subtitle": f"Grounded from local session artifacts for {date_label}",
         "generated_at": datetime.now(timezone.utc).date().isoformat(),
         "subject": "Human + Agent",
@@ -291,11 +300,12 @@ def build_report(sessions: list[dict[str, Any]], start: date, end: date) -> dict
             {"label": "Sessions", "value": str(len(sessions))},
             {"label": "Work areas", "value": str(len(categories))},
             {"label": "Top tools", "value": str(len(tool_counts))},
+            {"label": "Privacy", "value": sensitivity},
         ],
         "at_a_glance": [
             {
                 "title": "What this report is",
-                "body": "A deterministic weekly pass over local JSONL session artifacts. It is grounded, but intentionally conservative: ambiguous sessions are labeled broadly rather than over-interpreted.",
+                "body": f"A deterministic weekly pass over local JSONL session artifacts using **{sensitivity}** privacy sensitivity. It is grounded, but intentionally conservative: ambiguous sessions are labeled broadly rather than over-interpreted.",
             },
             {
                 "title": "Dominant pattern",
@@ -322,16 +332,16 @@ def build_report(sessions: list[dict[str, Any]], start: date, end: date) -> dict
         },
         "features": [
             {
-                "feature": "/weekly_insight",
+                "feature": "/weekly_debrief",
                 "one_liner": "Generate this report from the last seven days of local session artifacts.",
                 "why_for_you": "It turns scattered session history into a browsable weekly artifact without needing to manually collect transcripts.",
-                "example_code": "/weekly_insight",
+                "example_code": "/weekly_debrief",
             },
             {
-                "feature": "/insight",
+                "feature": "/debrief",
                 "one_liner": "Generate a focused polished report from a session, project, or current conversation.",
                 "why_for_you": "Use it when one thread deserves a deeper postmortem than the weekly overview.",
-                "example_code": "/insight this session",
+                "example_code": "/debrief this session",
             },
         ],
         "patterns": [
@@ -339,7 +349,7 @@ def build_report(sessions: list[dict[str, Any]], start: date, end: date) -> dict
                 "title": "Weekly review as an operating ritual",
                 "suggestion": "Use the weekly report as the top-level map, then open only the sessions that need deeper synthesis.",
                 "detail": "The report highlights clusters, recent prompts, likely wins, friction, and proof gaps. That gives the next thread a grounded starting point without loading the entire week into context.",
-                "copyable_prompt": "/weekly_insight last 7 days, then deepen the top three work areas into reusable next actions",
+                "copyable_prompt": "/weekly_debrief last 7 days, then deepen the top three work areas into reusable next actions",
             }
         ],
         "horizon": {
@@ -348,8 +358,8 @@ def build_report(sessions: list[dict[str, Any]], start: date, end: date) -> dict
                 {
                     "title": "Scheduled weekly digest",
                     "whats_possible": "A recurring automation can generate the HTML report every Friday or Sunday and drop it into an inbox item.",
-                    "how_to_try": "Ask your agent to create a weekly heartbeat or cron automation for /weekly_insight.",
-                    "copyable_prompt": "Create a weekly automation that runs /weekly_insight every Friday afternoon and summarizes the report path.",
+                    "how_to_try": "Ask your agent to create a weekly heartbeat or cron automation for /weekly_debrief.",
+                    "copyable_prompt": "Create a weekly automation that runs /weekly_debrief every Friday afternoon and summarizes the report path.",
                 }
             ],
         },
@@ -362,22 +372,23 @@ def build_report(sessions: list[dict[str, Any]], start: date, end: date) -> dict
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Build a polished weekly insight report from local session JSONL files.")
+    parser = argparse.ArgumentParser(description="Build a polished weekly Debrief report from local session JSONL files.")
     parser.add_argument("--sessions-root", default=str(DEFAULT_SESSIONS_ROOT))
     parser.add_argument("--start", help="Start date, YYYY-MM-DD. Defaults to end minus days plus one.")
     parser.add_argument("--end", default=datetime.now().date().isoformat(), help="End date, YYYY-MM-DD. Defaults to today.")
     parser.add_argument("--days", type=int, default=7, help="Number of days to include when --start is omitted.")
     parser.add_argument("--max-sessions", type=int, default=0, help="Limit to most recent N sessions. 0 means no limit.")
-    parser.add_argument("--output-json", default="/tmp/agent-weekly-insight-report.json")
-    parser.add_argument("--output-html", default="/tmp/agent-weekly-insight-report.html")
+    parser.add_argument("--sensitivity", choices=SENSITIVITY_CHOICES, default="high", help="Redaction strength: low keeps sanitized paths, medium redacts home paths, high also suppresses path-like spans and workspace labels.")
+    parser.add_argument("--output-json", default="/tmp/debrief-weekly-report.json")
+    parser.add_argument("--output-html", default="/tmp/debrief-weekly-report.html")
     parser.add_argument("--no-render", action="store_true", help="Only write the report JSON.")
     args = parser.parse_args()
 
     end = parse_day(args.end)
     start = parse_day(args.start) if args.start else end - timedelta(days=max(args.days, 1) - 1)
     root = Path(args.sessions_root).expanduser().resolve()
-    sessions = collect_sessions(root, start, end, args.max_sessions)
-    report = build_report(sessions, start, end)
+    sessions = collect_sessions(root, start, end, args.max_sessions, args.sensitivity)
+    report = build_report(sessions, start, end, args.sensitivity)
 
     json_path = Path(args.output_json).expanduser().resolve()
     json_path.parent.mkdir(parents=True, exist_ok=True)

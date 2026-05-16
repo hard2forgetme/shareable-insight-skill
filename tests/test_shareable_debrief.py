@@ -9,8 +9,8 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-WEEKLY = ROOT / "insight" / "scripts" / "build_weekly_insight_report.py"
-RENDERER = ROOT / "insight" / "scripts" / "render_insight_report.py"
+WEEKLY = ROOT / "debrief" / "scripts" / "build_weekly_debrief_report.py"
+RENDERER = ROOT / "debrief" / "scripts" / "render_debrief_report.py"
 
 
 def write_jsonl(path: Path, rows: list[dict]) -> None:
@@ -96,6 +96,8 @@ def main() -> int:
                 date(2026, 5, 10).isoformat(),
                 "--end",
                 date(2026, 5, 10).isoformat(),
+                "--sensitivity",
+                "high",
                 "--output-json",
                 str(output_json),
                 "--output-html",
@@ -107,8 +109,9 @@ def main() -> int:
         assert output_json.stat().st_size > 0
         assert output_html.stat().st_size > 0
         report = json.loads(output_json.read_text(encoding="utf-8"))
-        assert report["title"] == "Agent Weekly Insight"
+        assert report["title"] == "Debrief Weekly Report"
         assert report["stats"][0]["value"] == "2"
+        assert any(item["label"] == "Privacy" and item["value"] == "high" for item in report["stats"])
 
         combined = output_json.read_text(encoding="utf-8") + output_html.read_text(encoding="utf-8")
         forbidden = [
@@ -116,11 +119,13 @@ def main() -> int:
             "Human Name + Agent Name",
             "/Users/private-person",
             "owner@example.test",
+            "private-agent-project",
+            "private-site",
         ]
         leaks = [item for item in forbidden if item in combined]
         assert not leaks, f"privacy leak(s): {leaks}"
 
-    print("shareable insight smoke passed")
+    print("shareable debrief smoke passed")
     return 0
 
 

@@ -251,7 +251,7 @@ def fun_ending(data):
 
 
 def render(data):
-    title = data.get("title", "Agent Insight Report")
+    title = data.get("title", "Debrief Report")
     subtitle = data.get("subtitle", "")
     generated_at = data.get("generated_at", "")
     subject = data.get("subject", "")
@@ -539,7 +539,7 @@ def render(data):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Render a polished insight report HTML file from JSON.")
+    parser = argparse.ArgumentParser(description="Render a polished Debrief HTML file from JSON.")
     parser.add_argument("input", help="Path to JSON input")
     parser.add_argument("-o", "--output", required=True, help="Path to HTML output")
     args = parser.parse_args()

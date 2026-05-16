@@ -1,6 +1,6 @@
-# /weekly_insight
+# /weekly_debrief
 
-Generate a polished weekly activity report from local session artifacts.
+Generate a polished weekly Debrief report from local session artifacts.
 
 ## Arguments
 
@@ -8,33 +8,39 @@ Generate a polished weekly activity report from local session artifacts.
 
 ## Workflow
 
-1. Use the `insight` skill.
+1. Use the `debrief` skill.
 2. Run the weekly report builder from the installed skill directory. Defaults to the last seven calendar days ending today:
 
 ```bash
-python3 scripts/build_weekly_insight_report.py
+python3 scripts/build_weekly_debrief_report.py
 ```
 
 3. For an explicit date range, pass `--start` and `--end`:
 
 ```bash
-python3 scripts/build_weekly_insight_report.py --start YYYY-MM-DD --end YYYY-MM-DD
+python3 scripts/build_weekly_debrief_report.py --start YYYY-MM-DD --end YYYY-MM-DD
 ```
 
 4. For exported or non-default session logs, pass `--sessions-root`:
 
 ```bash
-python3 scripts/build_weekly_insight_report.py --sessions-root /path/to/sessions
+python3 scripts/build_weekly_debrief_report.py --sessions-root /path/to/sessions
 ```
 
-5. Verify both outputs exist and are non-empty:
+5. For audience-specific privacy, pass `--sensitivity low|medium|high`. Default is `high`:
+
+```bash
+python3 scripts/build_weekly_debrief_report.py --sensitivity high
+```
+
+6. Verify both outputs exist and are non-empty:
 
 ```text
-/tmp/agent-weekly-insight-report.json
-/tmp/agent-weekly-insight-report.html
+/tmp/debrief-weekly-report.json
+/tmp/debrief-weekly-report.html
 ```
 
-6. Respond with the HTML path, session count, dominant work areas, and any confidence caveats.
+7. Respond with the HTML path, session count, dominant work areas, privacy sensitivity, and any confidence caveats.
 
 ## Guardrails
 
